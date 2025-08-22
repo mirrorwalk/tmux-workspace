@@ -35,16 +35,12 @@ fi
 # Collect all subdirectories from the root folders
 SUBDIRS=()
 for ROOT in "${!ROOT_FOLDERS[@]}"; do
-    # Parse the configuration string "mindepth:maxdepth"
     CONFIG_STR="${ROOT_FOLDERS[$ROOT]}"
     IFS=':' read -r MIN_DEPTH MAX_DEPTH <<< "$CONFIG_STR"
-    
-    # Default values if not properly formatted
     MIN_DEPTH=${MIN_DEPTH:-0}
     MAX_DEPTH=${MAX_DEPTH:-1}
-    
+
     if [ -d "$ROOT" ]; then
-        # Use find with mindepth and maxdepth
         while IFS= read -r -d '' dir; do
             SUBDIRS+=("$dir")
         done < <(find "$ROOT" -mindepth "$MIN_DEPTH" -maxdepth "$MAX_DEPTH" -type d -print0)
@@ -54,30 +50,18 @@ done
 # Remove duplicates and filter out subdirectories that are also root folders
 FILTERED_SUBDIRS=()
 declare -A SEEN_DIRS
-
 for dir in "${SUBDIRS[@]}"; do
-    # Skip if we've already seen this directory
-    if [[ -n "${SEEN_DIRS[$dir]}" ]]; then
-        continue
-    fi
-    
-    # Mark this directory as seen
+    [[ -n "${SEEN_DIRS[$dir]}" ]] && continue
     SEEN_DIRS["$dir"]=1
-    
-        # Skip if this directory is itself a root folder
-        if [[ -n "${ROOT_FOLDERS[$dir]}" ]]; then
-            # Only include it if its own min depth == 0
-            DIR_MIN_DEPTH="${ROOT_FOLDERS[$dir]%%:*}"
-            if [[ "$DIR_MIN_DEPTH" -ne 0 ]]; then
-                continue
-            fi
-        fi
 
-    # Add to filtered list
+    if [[ -n "${ROOT_FOLDERS[$dir]}" ]]; then
+        DIR_MIN_DEPTH="${ROOT_FOLDERS[$dir]%%:*}"
+        [[ "$DIR_MIN_DEPTH" -ne 0 ]] && continue
+    fi
+
     FILTERED_SUBDIRS+=("$dir")
 done
 
-# Use the filtered subdirectories
 SUBDIRS=("${FILTERED_SUBDIRS[@]}")
 
 # Exit if no subdirectories are found
@@ -86,30 +70,15 @@ if [ ${#SUBDIRS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# Use fzf to select a subdirectory (full-screen by default)
+# Use fzf to select a subdirectory
 SELECTED=$(printf "%s\n" "${SUBDIRS[@]}" | fzf --prompt="Select a directory to open in tmux: " --border)
+[[ -z "$SELECTED" ]] && { echo "No directory selected. Exiting."; exit 0; }
+[[ ! -d "$SELECTED" ]] && { echo "Selected directory does not exist: $SELECTED"; exit 1; }
 
-# Exit if no directory is selected
-if [ -z "$SELECTED" ]; then
-    echo "No directory selected. Exiting."
-    exit 0
-fi
-
-# Check if the selected directory exists
-if [ ! -d "$SELECTED" ]; then
-    echo "Selected directory does not exist: $SELECTED"
-    exit 1
-fi
-
-# Get the directory name to use as the base tmux session name
+# Directory name becomes the session name
 SESSION_NAME=$(basename "$SELECTED")
 
-# If a session with the same name exists, append a timestamp to avoid conflicts
-if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    SESSION_NAME="${SESSION_NAME}-$(date +%s)"
-fi
-
-# Check for custom window settings for the selected directory
+# Check for custom window settings
 WINDOWS_STR="${CUSTOM_WINDOWS[$SELECTED]}"
 if [ -n "$WINDOWS_STR" ]; then
     IFS=':' read -r -a WINDOW_NAMES <<< "$WINDOWS_STR"
@@ -117,16 +86,20 @@ else
     WINDOW_NAMES=("main")
 fi
 
-# Create the session detached with the first window
-FIRST_WINDOW_NAME="${WINDOW_NAMES[0]:-main}"
-tmux new-session -d -s "$SESSION_NAME" -c "$SELECTED" -n "$FIRST_WINDOW_NAME"
+# Create session only if it doesn't exist
+if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    FIRST_WINDOW_NAME="${WINDOW_NAMES[0]:-main}"
+    tmux new-session -d -s "$SESSION_NAME" -c "$SELECTED" -n "$FIRST_WINDOW_NAME"
 
-# Add additional windows if any
-for ((i=1; i<${#WINDOW_NAMES[@]}; i++)); do
-    tmux new-window -t "$SESSION_NAME" -c "$SELECTED" -n "${WINDOW_NAMES[$i]}"
-done
+    for ((i=1; i<${#WINDOW_NAMES[@]}; i++)); do
+        tmux new-window -t "$SESSION_NAME" -c "$SELECTED" -n "${WINDOW_NAMES[$i]}"
+    done
+fi
 
-# If inside a tmux session, switch to the new session; otherwise, attach to it
+# Select first window
+tmux select-window -t "$SESSION_NAME:${WINDOW_NAMES[0]:-main}"
+
+# Attach or switch
 if [ -n "$TMUX" ]; then
     tmux switch-client -t "$SESSION_NAME"
 else

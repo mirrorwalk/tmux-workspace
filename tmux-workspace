@@ -1,38 +1,30 @@
 #!/usr/bin/env bash
 
-# Config file path
 CONFIG_DIR="$HOME/.config/tmux-workspace"
 CONFIG_FILE="$CONFIG_DIR/config.sh"
 
-# Create config directory if it doesn't exist
 mkdir -p "$CONFIG_DIR"
 
-# Check if config file exists
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Config file not found: $CONFIG_FILE"
     echo "Please create it with the appropriate settings."
     exit 1
 fi
 
-# Source the config file
 source "$CONFIG_FILE"
 
-# Default to showing root directories if not specified in config
 SHOW_ROOT_DIRECTORIES=${SHOW_ROOT_DIRECTORIES:-true}
 
-# Check if fzf is installed
 if ! command -v fzf &> /dev/null; then
     echo "fzf is not installed. Please install it first."
     exit 1
 fi
 
-# Check if tmux is installed
 if ! command -v tmux &> /dev/null; then
     echo "tmux is not installed. Please install it first."
     exit 1
 fi
 
-# Collect all subdirectories from the root folders
 SUBDIRS=()
 for ROOT in "${!ROOT_FOLDERS[@]}"; do
     CONFIG_STR="${ROOT_FOLDERS[$ROOT]}"
@@ -47,7 +39,6 @@ for ROOT in "${!ROOT_FOLDERS[@]}"; do
     fi
 done
 
-# Remove duplicates and filter out subdirectories that are also root folders
 FILTERED_SUBDIRS=()
 declare -A SEEN_DIRS
 for dir in "${SUBDIRS[@]}"; do
@@ -64,21 +55,17 @@ done
 
 SUBDIRS=("${FILTERED_SUBDIRS[@]}")
 
-# Exit if no subdirectories are found
 if [ ${#SUBDIRS[@]} -eq 0 ]; then
     echo "No subdirectories found in the specified root folders."
     exit 1
 fi
 
-# Use fzf to select a subdirectory
 SELECTED=$(printf "%s\n" "${SUBDIRS[@]}" | fzf --prompt="Select a directory to open in tmux: " --border)
-[[ -z "$SELECTED" ]] && { echo "No directory selected. Exiting."; exit 0; }
+[[ -z "$SELECTED" ]] && exit 0
 [[ ! -d "$SELECTED" ]] && { echo "Selected directory does not exist: $SELECTED"; exit 1; }
 
-# Directory name becomes the session name
 SESSION_NAME=$(basename "$SELECTED")
 
-# Check for custom window settings
 WINDOWS_STR="${CUSTOM_WINDOWS[$SELECTED]}"
 if [ -n "$WINDOWS_STR" ]; then
     IFS=':' read -r -a WINDOW_NAMES <<< "$WINDOWS_STR"
@@ -86,7 +73,6 @@ else
     WINDOW_NAMES=("main")
 fi
 
-# Create session only if it doesn't exist
 if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     FIRST_WINDOW_NAME="${WINDOW_NAMES[0]:-main}"
     tmux new-session -d -s "$SESSION_NAME" -c "$SELECTED" -n "$FIRST_WINDOW_NAME"
@@ -96,10 +82,8 @@ if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     done
 fi
 
-# Select first window
 tmux select-window -t "$SESSION_NAME:${WINDOW_NAMES[0]:-main}"
 
-# Attach or switch
 if [ -n "$TMUX" ]; then
     tmux switch-client -t "$SESSION_NAME"
 else

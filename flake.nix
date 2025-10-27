@@ -1,5 +1,5 @@
 {
-  description = "Private NixOS configuration";
+  description = "Flake for tmux-workspace";
 
   outputs = {...}: {
     default = {
